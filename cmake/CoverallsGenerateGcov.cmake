@@ -67,9 +67,11 @@ endif()
 # CMake list format.
 string(REGEX REPLACE "\\*" ";" COVERAGE_SRCS ${COVERAGE_SRCS})
 
-find_program(GCOV_EXECUTABLE gcov)
+find_program(GCOV_EXECUTABLE NAMES $ENV{GCOV} gcov)
 
-if (NOT GCOV_EXECUTABLE)
+if (GCOV_EXECUTABLE)
+	message("Gcov exe: ${GCOV_EXECUTABLE}")
+else()
 	message(FATAL_ERROR "gcov not found! Aborting...")
 endif()
 
@@ -100,13 +102,15 @@ if (GIT_FOUND)
 	git_log_format(ce GIT_COMMITTER_EMAIL)
 	git_log_format(B GIT_COMMIT_MESSAGE)
 
-	message("Git exe: ${GIT_EXECUTABLE}")
-	message("Git branch: ${GIT_BRANCH}")
-	message("Git author: ${GIT_AUTHOR_NAME}")
-	message("Git e-mail: ${GIT_AUTHOR_EMAIL}")
-	message("Git commiter name: ${GIT_COMMITTER_NAME}")
-	message("Git commiter e-mail: ${GIT_COMMITTER_EMAIL}")
-	message("Git commit message: ${GIT_COMMIT_MESSAGE}")
+	if(COVERALLS_VERBOSE)
+		message("Git exe: ${GIT_EXECUTABLE}")
+		message("Git branch: ${GIT_BRANCH}")
+		message("Git author: ${GIT_AUTHOR_NAME}")
+		message("Git e-mail: ${GIT_AUTHOR_EMAIL}")
+		message("Git commiter name: ${GIT_COMMITTER_NAME}")
+		message("Git commiter e-mail: ${GIT_COMMITTER_EMAIL}")
+		message("Git commit message: ${GIT_COMMIT_MESSAGE}")
+	endif()
 
 endif()
 
@@ -218,15 +222,15 @@ foreach (GCOV_FILE ${ALL_GCOV_FILES})
 	list(FIND COVERAGE_SRCS ${GCOV_SRC_PATH} WAS_FOUND)
 
 	if (NOT WAS_FOUND EQUAL -1)
-		message("YES: ${GCOV_FILE}")
+		message("KEEP: ${GCOV_FILE}")
 		list(APPEND GCOV_FILES ${GCOV_FILE})
 
 		# We remove it from the list, so we don't bother searching for it again.
 		# Also files left in COVERAGE_SRCS_REMAINING after this loop ends should
 		# have coverage data generated from them (no lines are covered).
 		list(REMOVE_ITEM COVERAGE_SRCS_REMAINING ${GCOV_SRC_PATH})
-	else()
-		message("NO:  ${GCOV_FILE}")
+	elseif(COVERALLS_VERBOSE)
+		message("IGNORE: ${GCOV_FILE}")
 	endif()
 endforeach()
 
@@ -264,7 +268,9 @@ foreach (GCOV_FILE ${GCOV_FILES})
 	# The new coveralls API doesn't need the entire source (Yay!)
 	# However, still keeping that part for now. Will cleanup in the future.
 	file(MD5 "${GCOV_SRC_PATH}" GCOV_CONTENTS_MD5)
-	message("MD5: ${GCOV_SRC_PATH} = ${GCOV_CONTENTS_MD5}")
+	if (COVERALLS_VERBOSE)
+		message("MD5: ${GCOV_SRC_PATH} = ${GCOV_CONTENTS_MD5}")
+	endif()
 
 	# Loads the gcov file as a list of lines.
 	# (We first open the file and replace all occurences of [] with _
@@ -367,7 +373,9 @@ foreach (GCOV_FILE ${GCOV_FILES})
 		if (RESET_SKIP)
 			set(DO_SKIP 0)
 		endif()
-		math(EXPR GCOV_LINE_COUNT "${GCOV_LINE_COUNT}+1")
+		if (${GCOV_LINE_COUNT} LESS ${LINE_COUNT})
+			math(EXPR GCOV_LINE_COUNT "${GCOV_LINE_COUNT}+1")
+		endif()
 	endforeach()
 
 	message("${GCOV_LINE_COUNT} of ${LINE_COUNT} lines read!")
@@ -412,6 +420,11 @@ foreach(NOT_COVERED_SRC ${COVERAGE_SRCS_REMAINING})
 
 	# Generate the final JSON for this file.
 	message("Generate JSON for non-gcov file: ${NOT_COVERED_SRC}...")
+	file(RELATIVE_PATH GCOV_SRC_REL_PATH "${PROJECT_ROOT}" "${NOT_COVERED_SRC}")
+	file(MD5 "${NOT_COVERED_SRC}" GCOV_CONTENTS_MD5)
+	if (COVERALLS_VERBOSE)
+		message("MD5: ${NOT_COVERED_SRC} = ${GCOV_CONTENTS_MD5}")
+	endif()
 	string(CONFIGURE ${SRC_FILE_TEMPLATE} FILE_JSON)
 	set(JSON_GCOV_FILES "${JSON_GCOV_FILES}${FILE_JSON}, ")
 endforeach()
@@ -428,5 +441,8 @@ file(WRITE "${COVERALLS_OUTPUT_FILE}" "${JSON}")
 message("###########################################################################")
 message("Generated coveralls JSON containing coverage data:") 
 message("${COVERALLS_OUTPUT_FILE}")
+if (COVERALLS_VERBOSE)
+	message("${JSON}")
+endif()
 message("###########################################################################")
 
